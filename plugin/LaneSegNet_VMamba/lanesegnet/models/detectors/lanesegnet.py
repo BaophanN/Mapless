@@ -63,7 +63,7 @@ class LaneSegNet(MVXTwoStageDetector):
 
         self.fp16_enabled = False
 
-        # temporal
+        # should incorporate query update into this
         self.video_test_mode = video_test_mode
         self.prev_frame_info = {
             'prev_bev': None,
@@ -71,6 +71,9 @@ class LaneSegNet(MVXTwoStageDetector):
             'prev_pos': 0,
             'prev_angle': 0,
         }
+        if self.video_test_mode: 
+            # init video module here 
+
 
     def extract_img_feat(self, img, img_metas, len_queue=None):
         """Extract features of images.

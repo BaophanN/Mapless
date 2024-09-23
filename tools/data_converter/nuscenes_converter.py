@@ -280,7 +280,7 @@ def obtain_sensor2top(nusc,
                       e2g_t,
                       e2g_r_mat,
                       sensor_type='lidar'):
-    """Obtain the info with RT matric from general sensor to Top LiDAR.
+    """Obtain the info with Rotation-Translation matric from general sensor to Top LiDAR.
 
     Args:
         nusc (class): Dataset class in the nuScenes dataset.

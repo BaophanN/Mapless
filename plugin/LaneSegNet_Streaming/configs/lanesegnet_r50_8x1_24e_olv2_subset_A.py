@@ -48,43 +48,27 @@ bev_w_ = 200
 
 model = dict(
     type='LaneSegNet',
-    # img_backbone=dict(
-    #     type='MM_VSSM',
-    #     # should match the neck 
-    #     out_indices=(1, 2, 3),
-    #     # pretrained='vssm1_tiny_0230s_ckpt_epoch_264.pth',
-    #     # pretrained='',
-    #     # copied from classification/configs/vssm/vssm_tiny_224.yaml
-    #     dims=96,
-    #     depths=(2, 2, 8, 2), # (2,2,2,2)
-    #     ssm_d_state=1,
-    #     ssm_dt_rank="auto",
-    #     ssm_ratio=1.0,
-    #     ssm_conv=3,
-    #     ssm_conv_bias=False,
-    #     forward_type="v05_noz", # v3_noz
-    #     mlp_ratio=4.0,
-    #     downsample_version="v3",
-    #     patchembed_version="v2",
-    #     drop_path_rate=0.2,
-    #     norm_layer="ln2d",
-    #     init_cfg=dict(type='Pretrained', checkpoint='vssm1_tiny_0230s_ckpt_epoch_264.pth')
-    # ),
     img_backbone=dict(
         type='ResNet',
-        depth=50,
+        depth=18,
         num_stages=4,
         out_indices=(1, 2, 3),
         frozen_stages=1,
         norm_cfg=dict(type='BN', requires_grad=False),
         norm_eval=True,
         style='pytorch',
-        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
+        init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet18')),
+    streaming_cfg=dict(
+        streaming_bev=True,
+        fusion_cfg=dict(
+            type='ConvGRU',
+            out_channels=_dim_,
+        )
+    ),
     img_neck=dict(
         type='FPN',
         # Resnet50: 512,1024,2048
-        in_channels=[192, 384, 768],
-        # in_channels=[512,1024,2048],
+        in_channels=[128,256,512],
         out_channels=_dim_,
         start_level=0,
         add_extra_convs='on_output',
@@ -150,6 +134,11 @@ model = dict(
         with_box_refine=True,
         code_size=code_size,
         code_weights= [1.0 for i in range(code_size)],
+        streaming_cfg=dict(
+            streaming=True,
+            topk=int(num_query*(1/3)),
+            trans_loss_weight=0.1, # trans loss 
+        ),
         transformer=dict(
             type='LaneSegNetTransformer',
             embed_dims=_dim_,
