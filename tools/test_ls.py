@@ -23,7 +23,7 @@ from mmdet3d.apis import single_gpu_test
 from mmdet3d.datasets import build_dataloader, build_dataset
 from mmdet3d.models import build_model
 import sys
-sys.path.insert(0, '/workspace/source')
+sys.path.insert(0, '/workspace/source/Mapless')
 
 try:
     # If mmdet version > 2.20.0, setup_multi_processes would be imported and

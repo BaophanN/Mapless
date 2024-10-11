@@ -12,7 +12,7 @@ import warnings
 from os import path as osp
 
 import sys
-sys.path.insert(0, '/workspace/source')
+sys.path.insert(0, '/workspace/source/Mapless')
 import mmcv
 import torch
 import torch.distributed as dist

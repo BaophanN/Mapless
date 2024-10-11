@@ -1,12 +1,13 @@
 _base_ = []
-custom_imports = dict(imports=['plugin.LaneSegNet_VMamba.bevformer', 'plugin.LaneSegNet_VMamba.lanesegnet', 'plugin.LaneSegNet_VMamba.backbones'])
+custom_imports = dict(imports=['plugin.LaneSegNet_Streaming.bevformer', 'plugin.LaneSegNet_Streaming.lanesegnet'])
 
 # If point cloud range is changed, the models should also change their point
 # cloud range accordingly
 roi_size = (102.4,51.2)
 # point_cloud_range = [-51.2, -25.6, -2.3, 51.2, 25.6, 1.7]
-# (60,30)
-
+# (60,30)'
+num_query = 200
+batch_size = 1
 point_cloud_range = [-roi_size[0]/2, -roi_size[1]/2, -2.3, roi_size[0]/2, roi_size[1]/2, 1.7]
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
@@ -48,6 +49,9 @@ bev_w_ = 200
 
 model = dict(
     type='LaneSegNet',
+    bev_h = bev_h_,
+    bev_w = bev_w_, 
+    roi_size = roi_size,
     img_backbone=dict(
         type='ResNet',
         depth=18,
@@ -60,6 +64,7 @@ model = dict(
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet18')),
     streaming_cfg=dict(
         streaming_bev=True,
+        batch_size = batch_size,
         fusion_cfg=dict(
             type='ConvGRU',
             out_channels=_dim_,
@@ -125,7 +130,7 @@ model = dict(
         num_classes=class_nums,
         num_lane_type_classes=3,
         in_channels=_dim_,
-        num_query=200,
+        num_query=num_query,
         bev_h=bev_h_,
         bev_w=bev_w_,
         pc_range=point_cloud_range,
@@ -136,6 +141,7 @@ model = dict(
         code_weights= [1.0 for i in range(code_size)],
         streaming_cfg=dict(
             streaming=True,
+            batch_size=batch_size,
             topk=int(num_query*(1/3)),
             trans_loss_weight=0.1, # trans loss 
         ),
@@ -245,7 +251,7 @@ test_pipeline = [
 ]
 
 data = dict(
-    samples_per_gpu=1,
+    samples_per_gpu=batch_size,
     workers_per_gpu=2,
     train=dict(
         type=dataset_type,

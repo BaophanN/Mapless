@@ -41,6 +41,7 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
                  bbox_coder=None,
                  num_reg_fcs=2,
                  code_weights=None,
+                 num_points=10,
                  bev_h=30,
                  bev_w=30,
                  pc_range=None,
@@ -105,6 +106,7 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
         self.loss_dice = build_loss(loss_dice)
         self.pred_mask = pred_mask
         self.loss_mask_type = loss_mask['type']
+        self.num_points = num_points
 
         if self.loss_cls.use_sigmoid:
             self.cls_out_channels = num_classes
@@ -162,7 +164,7 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
         if self.streaming_query:
             self.batch_size = streaming_cfg['batch_size']
             self.topk_query = streaming_cfg['topk']
-            # self.trans_loss_weight = streaming_cfg.get('trans_loss_weight', 0.0)
+            self.trans_loss_weight = streaming_cfg.get('trans_loss_weight', 0.0)
             self.query_memory = StreamTensorMemory(self.batch_size,)
             self.reference_points_memory = StreamTensorMemory(self.batch_size,)
             c_dim = 12 
@@ -259,13 +261,16 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
     def propagate(self, query_embedding, img_metas, return_loss=True):
         bs = query_embedding.shape[0]
         propagated_query_list = []
-        prop_reference_points_list = [] 
+        prop_reference_points_list = [] # stil empty so cannot stack 
 
         tmp = self.query_memory.get(img_metas) 
         query_memory, pose_memory = tmp['tensor'], tmp['img_metas'] 
 
         tmp =self.reference_points_memory.get(img_metas) 
         ref_pts_memory, pose_memory = tmp['tensor'], tmp['img_metas']
+        print('ref_pts_memory',len(ref_pts_memory)) # list
+        print('pose_memory',len(pose_memory)) # list
+
 
         if return_loss: 
             target_memory = self.target_memory.get(img_metas)['tensor']
@@ -278,10 +283,15 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
             is_first_frame = is_first_frame_list[i]
             if is_first_frame:
                 padding = query_embedding.new_zeros((self.topk_query, self.embed_dims))
-                propagated_query_list.append(padding) 
+                propagated_query_list.append(padding)
+
+                padding = query_embedding.new_zeros((self.topk_query, self.num_points, 2))
+                prop_reference_points_list.append(padding)
+                print("->1st frame: propagated_query_list", padding.shape)
             else: 
                 # use float64 to do precise coord transformation
                 # translation and rotation on roi (60,30)
+                print('huhu')
                 prev_e2g_trans = self.roi_size.new_tensor(pose_memory[i]['ego2global_translation'], dtype=torch.float64)
                 prev_e2g_rot = self.roi_size.new_tensor(pose_memory[i]['ego2global_rotation'], dtype=torch.float64)
                 curr_e2g_trans = self.roi_size.new_tensor(img_metas[i]['ego2global_translation'], dtype=torch.float64)
@@ -299,11 +309,13 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
                 pos_encoding = prev2curr_matrix.float()[:3].view(-1) 
 
                 prop_q = query_memory[i]
+                print('->prop_q', prop_q.shape)
                 # MotionMLP
                 query_memory_updated = self.query_update(
                     prop_q,
                     pos_encoding.view(1,-1).repeat(len(query_memory[i]), 1)
-                )              
+                )   
+                print("->query_memory_updated", query_memory_updated.shape)           
                 propagated_query_list.append(query_memory_updated.clone())
 
                 pred = self.reg_branches[-1](query_memory_updated).sigmoid()
@@ -344,23 +356,26 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
                 curr_ref_pts = torch.einsum('lk,ijk->ijl',prev2curr_matrix,denormed_ref_pts.double()).float()
                 normed_ref_pts = (curr_ref_pts[...,:2] - self.origin) / self.roi_size # (num_prop, num_pts, 2) 
                 normed_ref_pts = torch.clip(normed_ref_pts, min=0.,max=1.)
-
+                print('->normed_ref_pts', normed_ref_pts.shape)
                 prop_reference_points_list.append(normed_ref_pts)
+        print(len(propagated_query_list))
+        print(len(prop_reference_points_list))
+        print('huhu')
         prop_query_embedding = torch.stack(propagated_query_list) # (bs, topk, embed_dims) 
         prop_ref_pts = torch.stack(prop_reference_points_list) # (bs, topk, num_pts, 2) 
         assert list(prop_query_embedding.shape) == [bs, self.topk_query, self.embed_dims]
         assert list(prop_ref_pts.shape) == [bs, self.topk_query, self.num_points, 2] 
 
-        init_reference_points = self.reference_points_embed(query_embedding).sigmoid() # (bs, num_q, 2*num_pts) # init ref -> sigmoid 
-        init_reference_points = init_reference_points.view(bs, self.num_queries, self.num_points, 2) # (bs, num_q, num_pts, 2)
+        # init_reference_points = self.reference_points_embed(query_embedding).sigmoid() # (bs, num_q, 2*num_pts) # init ref -> sigmoid 
+        # init_reference_points = init_reference_points.view(bs, self.num_queries, self.num_points, 2) # (bs, num_q, num_pts, 2)
         memory_query_embedding = None
 
         if return_loss:
             trans_loss = self.trans_loss_weight * trans_loss / (num_pos + 1e-10)
-            return query_embedding, prop_query_embedding, init_reference_points, prop_ref_pts, memory_query_embedding, is_first_frame_list, trans_loss
+            return query_embedding, prop_query_embedding, prop_ref_pts, memory_query_embedding, is_first_frame_list, trans_loss
         else:
             # test mode: no loss calculation 
-            return query_embedding, prop_query_embedding, init_reference_points, prop_ref_pts, memory_query_embedding, is_first_frame_list      
+            return query_embedding, prop_query_embedding, prop_ref_pts, memory_query_embedding, is_first_frame_list      
 
     @auto_fp16(apply_to=('mlvl_feats'))
     def forward(self, mlvl_feats, bev_feats, img_metas):
@@ -381,39 +396,81 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
             all_mask_preds (Tensor): Sigmoid outputs from the segmentation \
                 head with normalized value in the range of [0,1].
                 Shape []
+
+        streammapnet
+
+                inter_queries, init_reference, inter_references = self.transformer(
+            mlvl_feats=[bev_features,],
+            mlvl_masks=[img_masks.type(torch.bool)],
+            query_embed=query_embedding,
+            prop_query=prop_query_embedding,
+            mlvl_pos_embeds=[pos_embed], # not used
+            memory_query=None,
+            init_reference_points=init_reference_points,
+            prop_reference_points=prop_ref_pts,
+            reg_branches=self.reg_branches,
+            cls_branches=self.cls_branches,
+            predict_refine=self.predict_refine,
+            is_first_frame_list=is_first_frame_list,
+            query_key_padding_mask=query_embedding.new_zeros((bs, self.num_queries), dtype=torch.bool), # mask used in self-attn,
+        )
+
         """
         dtype = mlvl_feats[0].dtype
+        B, N, C, H, W = mlvl_feats[0].shape 
+        img_masks = bev_feats.new_zeros((B,H,W)) 
+        pos_embed = None 
+        query_embedding = self.query_embedding.weight[None, ...].repeat(B,1,1) # B, num_Q, embed_dims 
+        input_query_num = self.num_query 
+        if self.streaming_query: 
+            query_embedding, prop_query_embedding, prop_ref_pts, memory_query, is_first_frame_list, trans_loss = \
+                self.propagate(query_embedding, img_metas,return_loss=True) 
+        else: 
+            # go to transformer for ident init 
+            prop_query_embedding = None
+            prop_ref_pts = None
+            is_first_frame_list = [True for i in range(B)]
+
+
+
         object_query_embeds = self.query_embedding.weight.to(dtype)
+        print("before laneseg transformer, object_query_embeds",object_query_embeds.shape)
         outputs = self.transformer(
             mlvl_feats,
             bev_feats,
-            object_query_embeds,
+            # mlvl_pos_embeds=,            
+            # mlvl_feats=[bev_feats,],
+            object_query_embed=object_query_embeds,
+            is_first_frame_list=is_first_frame_list, 
+            prop_reference_points=prop_ref_pts,
             bev_h=self.bev_h,
             bev_w=self.bev_w,
             reg_branches=(self.reg_branches, self.reg_branches_offset) if self.with_box_refine else None,  # noqa:E501
-            cls_branches=None,
-            img_metas=img_metas
+            cls_branches=self.cls_branches,
+            img_metas=img_metas,
+            memory_query=None,
+            prop_query=prop_query_embedding, 
         )
         
         hs, init_reference, inter_references = outputs
         hs = hs.permute(0, 2, 1, 3)
 
-        if not self.training:
-            reference = inter_references[-1]
-            reference = inverse_sigmoid(reference)
-            assert reference.shape[-1] == self.pts_dim
+        if not self.training: # forward test 
+            reference = inter_references[-1] # reference from final decoder layer 
+            reference = inverse_sigmoid(reference) # activation 
+            assert reference.shape[-1] == self.pts_dim # pts_dim 
 
-            outputs_class = self.cls_branches[-1](hs[-1])
+            outputs_class = self.cls_branches[-1](hs[-1]) # 
             output_left_type = self.cls_left_type_branches[-1](hs[-1])
             output_right_type = self.cls_right_type_branches[-1](hs[-1])
 
-            tmp = self.reg_branches[-1](hs[-1])
-            bs, num_query, _ = tmp.shape
-            tmp = tmp.view(bs, num_query, -1, self.pts_dim)
-            tmp = tmp + reference
-            tmp = tmp.sigmoid()
-
-            coord = tmp.clone()
+            tmp = self.reg_branches[-1](hs[-1]) # output of regression branch 
+            bs, num_query, _ = tmp.shape # tmp.shape 
+            tmp = tmp.view(bs, num_query, -1, self.pts_dim) # tmp.view bs, 200, -1, pts_dims 
+            tmp = tmp + reference # reg + reference 
+            tmp = tmp.sigmoid() # inverse sigmoid then sigmoid ???
+ 
+            coord = tmp.clone() 
             coord[..., 0] = coord[..., 0] * (self.pc_range[3] - self.pc_range[0]) + self.pc_range[0]
             coord[..., 1] = coord[..., 1] * (self.pc_range[4] - self.pc_range[1]) + self.pc_range[1]
             if self.pts_dim == 3:
@@ -474,12 +531,12 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
                 coord[..., 2] = coord[..., 2] * (self.pc_range[5] - self.pc_range[2]) + self.pc_range[2]
             centerline = coord.view(bs, num_query, -1).contiguous()
 
-            offset = self.reg_branches_offset[lvl](hs[lvl])
-            left_laneline = centerline + offset
-            right_laneline = centerline - offset
+            offset = self.reg_branches_offset[lvl](hs[lvl]) # offset from mlvl, hs???? 
+            left_laneline = centerline + offset   # left laneline
+            right_laneline = centerline - offset 
 
             # segmentation head
-            outputs_mask = self._forward_mask_head(hs[lvl], bev_feats, lvl)
+            outputs_mask = self._forward_mask_head(hs[lvl], bev_feats, lvl) 
 
             outputs_classes.append(outputs_class)
             outputs_coord.append(torch.cat([centerline, left_laneline, right_laneline], axis=-1))

@@ -65,21 +65,20 @@ class BEVFormerConstructer(BaseModule):
         self.pc_range = pc_range
         self.real_w = self.pc_range[3] - self.pc_range[0]
         self.real_h = self.pc_range[4] - self.pc_range[1]
-        self.bev_h = bev_h # this is for what? 
-        self.bev_w = bev_w # this is for what? 
+        self.bev_h = bev_h
+        self.bev_w = bev_w
         self.rotate_center = rotate_center
 
         self.init_layers()
 
     def init_layers(self):
-        # Role of embedding 
         self.bev_embedding = nn.Embedding(
                 self.bev_h * self.bev_w, self.embed_dims)
+                # 100x200, 256 
         self.level_embeds = nn.Parameter(torch.Tensor(
             self.num_feature_levels, self.embed_dims))
         self.cams_embeds = nn.Parameter(
             torch.Tensor(self.num_cams, self.embed_dims))
-        # 2x(linear + relu)
         self.can_bus_mlp = nn.Sequential(
             nn.Linear(18, self.embed_dims // 2),
             nn.ReLU(inplace=True),
@@ -112,19 +111,26 @@ class BEVFormerConstructer(BaseModule):
         """
         bs, num_cam, _, _, _ = mlvl_feats[0].shape
         dtype = mlvl_feats[0].dtype
+        print('->bev_former: mlvl shape', mlvl_feats[0].shape)
 
-        bev_queries = self.bev_embedding.weight.to(dtype)
+        bev_queries = self.bev_embedding.weight.to(dtype) # bev_embedding 
+        print('->bev_former: 1.bev_queries', bev_queries.shape)
+        
         bev_queries = bev_queries.unsqueeze(1).repeat(1, bs, 1)
+        print('->bev_former: 2.bev_queries', bev_queries.shape)
 
         bev_mask = torch.zeros((bs, self.bev_h, self.bev_w),
-                               device=bev_queries.device).to(dtype)
-        bev_pos = self.positional_encoding(bev_mask).to(dtype)
-        bev_pos = bev_pos.flatten(2).permute(2, 0, 1)
+                               device=bev_queries.device).to(dtype) # mask 
+        print('->bev_former: bev_mask', bev_mask.shape)
 
+        bev_pos = self.positional_encoding(bev_mask).to(dtype) 
+        print('->bev_former: 1.bev_pos', bev_pos.shape)
+        bev_pos = bev_pos.flatten(2).permute(2, 0, 1)  # pos_embed 
+        print('->bev_former: 2.bev_pos', bev_pos.shape)
         # BEVFormer assumes the coords are x-right and y-forward for the nuScenes lidar
         # but OpenLane-V2's coords are x-forward and y-left
         # here is a fix for any lidar coords, the shift is calculated by the rotation matrix
-        delta_global = np.array([each['can_bus'][:3] for each in img_metas])
+        delta_global = np.array([each['can_bus'][:3] for each in img_metas])# what is can_bus 
         lidar2global_rotation = np.array([each['lidar2global_rotation'] for each in img_metas])
         delta_lidar = []
         for i in range(bs):
@@ -160,29 +166,36 @@ class BEVFormerConstructer(BaseModule):
         feat_flatten = []
         spatial_shapes = []
         for lvl, feat in enumerate(mlvl_feats):
-            bs, num_cam, c, h, w = feat.shape
+            bs, num_cam, c, h, w = feat.shape #[1,7,256, 40,20]
             spatial_shape = (h, w)
+            print('1. feat before flatten', feat.shape)
             feat = feat.flatten(3).permute(1, 0, 3, 2)
+            print('1. feat in mlvl', feat.shape)
             if self.use_cams_embeds:
+                print('cams_embeds', self.cams_embeds.shape)
                 feat = feat + self.cams_embeds[:, None, None, :].to(feat.dtype)
+            print('1. level_embeds', self.level_embeds.shape)
             feat = feat + self.level_embeds[None,
                                             None, lvl:lvl + 1, :].to(feat.dtype)
             spatial_shapes.append(spatial_shape)
             feat_flatten.append(feat)
-
+        print('feat_flatten[0] shape:', feat_flatten[0].shape)
         feat_flatten = torch.cat(feat_flatten, 2)
+        print('feat_flatten after cat', feat_flatten.shape)
         spatial_shapes = torch.as_tensor(
             spatial_shapes, dtype=torch.long, device=bev_pos.device)
         level_start_index = torch.cat((spatial_shapes.new_zeros(
             (1,)), spatial_shapes.prod(1).cumsum(0)[:-1]))
 
         feat_flatten = feat_flatten.permute(
-            0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims)
+            0, 2, 1, 3)  # (num_cam, H*W, bs, embed_dims). (7,H,W,1,256)
+        print('feat flatten shape', feat_flatten.shape)
+        
 
         bev_embed = self.encoder(
             bev_queries,
-            feat_flatten,
-            feat_flatten,
+            feat_flatten, # with itself, key
+            feat_flatten, # value 
             bev_h=self.bev_h,
             bev_w=self.bev_w,
             bev_pos=bev_pos,
@@ -193,6 +206,7 @@ class BEVFormerConstructer(BaseModule):
             img_metas=img_metas,
             **kwargs
         )
+        # bev_embed = bev_embed.unflatten(1, (self.bev_h, self.bev_w)).permute(0,3,1,2).contiguous()
 
         return bev_embed
 

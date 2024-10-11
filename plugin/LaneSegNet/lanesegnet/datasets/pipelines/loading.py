@@ -11,6 +11,7 @@ from mmdet3d.datasets.pipelines import LoadAnnotations3D
 
 
 @PIPELINES.register_module()
+# Dataloader 
 class CustomLoadMultiViewImageFromFiles(object):
 
     def __init__(self, to_float32=False, color_type='unchanged'):
