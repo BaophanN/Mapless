@@ -8,11 +8,11 @@ class StreamTensorMemory(object):
         self.bs = self.train_bs 
 
         self.train_memory_list = [None for i in range(self.bs)]
-        self.train_imgs_metas_memory = [None for i in range(self.bs)] 
+        self.train_img_metas_memory = [None for i in range(self.bs)] 
 
         self.test_memory_list = [None] 
-        self.test_imgs_metas_memory = [None] 
-    
+        self.test_img_metas_memory = [None] 
+   
     @property
     def memory_list(self): 
         if self.training: 
@@ -23,7 +23,7 @@ class StreamTensorMemory(object):
     @property 
     def img_metas_memory(self):
         if self.training:
-            return self.train_imgs_metas_memory
+            return self.train_img_metas_memory
         else: 
             return self.test_img_metas_memory 
     
@@ -48,7 +48,9 @@ class StreamTensorMemory(object):
             if not self.img_metas_memory[i]:
                 is_first_frame = True 
             else:
-                is_first_frame = (img_metas[i]['scene_name'] != self.imgs_metas_memory[i]['scene_name'])
+                # print('->membuffer, meta key',img_metas[i].keys())
+                # old scene_name
+                is_first_frame = (img_metas[i]['scene_token'] != self.img_metas_memory[i]['scene_token'])
             
             if is_first_frame:
                 self.reset_single(i)

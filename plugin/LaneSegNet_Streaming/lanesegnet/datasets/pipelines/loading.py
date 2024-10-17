@@ -18,6 +18,51 @@ class CustomLoadMultiViewImageFromFiles(object):
         self.color_type = color_type
 
     def __call__(self, results):
+        '''
+        ['filename', 
+        'ori_shape', 
+        'img_shape', 
+        'lidar2img', 
+        'pad_shape', 
+        'crop_shape', 
+        'scale_factor', 
+        'box_mode_3d', 
+        'box_type_3d', 
+        'img_norm_cfg', 
+        'sample_idx', 
+        'scene_token', 
+        'can_bus', 
+        'lidar2global_rotation', 
+        'prev_bev'])
+        
+        ->results key dict_keys(
+        ['sample_idx', 
+        'scene_token', 
+        'img_filename', 
+        'lidar2img', 
+        'cam_intrinsic', 
+        'lidar2cam', 
+        'ann_info', 
+        'can_bus', 
+        'lidar2global_rotation', 
+        'img_fields', 
+        'bbox3d_fields', 
+        'pts_mask_fields', 
+        'pts_seg_fields', 
+        'bbox_fields', 
+        'mask_fields', 
+        'seg_fields', 
+        'box_type_3d', 
+        'box_mode_3d', 
+        'filename', 
+        'img', 
+        'img_shape', 
+        'ori_shape', 
+        'pad_shape', 
+        'crop_shape', 
+        'scale_factor', 
+        'img_norm_cfg']
+        '''
         filename = results['img_filename']
         # img is of shape (h, w, c, num_views)
         img = [mmcv.imread(name, self.color_type) for name in filename]
@@ -36,6 +81,7 @@ class CustomLoadMultiViewImageFromFiles(object):
             mean=np.zeros(num_channels, dtype=np.float32),
             std=np.ones(num_channels, dtype=np.float32),
             to_rgb=False)
+        # print('->results key', results.keys())
         return results
 
     def __repr__(self):

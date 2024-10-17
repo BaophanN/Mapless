@@ -56,7 +56,7 @@ class LaneSegNetDecoder(TransformerLayerSequence):
 
         output = query
         num_query, _, _ = output.shape
-        print('->Decoder, output shape', output.shape)
+        # print('->Decoder, output shape', output.shape)
         intermediate = []
         intermediate_reference_points = []
         lane_ref_points = reference_points[:, :, self.sample_idx * 2, :]
@@ -66,7 +66,7 @@ class LaneSegNetDecoder(TransformerLayerSequence):
             if lid == self.prop_add_stage and prop_query is not None and prop_reference_points is not None: 
                 bs, topk, embed_dims = prop_query.shape 
                 output = output.permute(1,0,2) 
-                print('->output',output)
+                # print('->output',output)
                 with torch.no_grad(): 
                     tmp_scores, _ = cls_branches[lid](output).max(-1)
                 new_query = []

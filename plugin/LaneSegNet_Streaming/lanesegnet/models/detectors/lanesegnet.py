@@ -12,6 +12,7 @@ from mmcv.runner import force_fp32, auto_fp16
 from mmdet.models import DETECTORS
 from mmdet.models.builder import build_head, build_neck
 from mmdet3d.models.detectors.mvx_two_stage import MVXTwoStageDetector
+import torch.nn.functional as F
 
 
 from ...utils.memory_buffer import StreamTensorMemory
@@ -66,6 +67,7 @@ class LaneSegNet(MVXTwoStageDetector):
 
         self.bev_h = bev_h
         self.bev_w = bev_w
+        self.roi_size = roi_size
         # temporal
         self.video_test_mode = video_test_mode
         self.prev_frame_info = {
@@ -101,7 +103,7 @@ class LaneSegNet(MVXTwoStageDetector):
     def extract_img_feat(self, img, img_metas, len_queue=None):
         """Extract features of images."""
         B = img.size(0) # batch size
-        print('->1. img input shape', img.shape)
+        # print('->1. img input shape', img.shape)
         if img is not None:
 
             if img.dim() == 5 and img.size(0) == 1:
@@ -109,10 +111,10 @@ class LaneSegNet(MVXTwoStageDetector):
             elif img.dim() == 5 and img.size(0) > 1:
                 B, N, C, H, W = img.size()
                 img = img.reshape(B * N, C, H, W)
-            print('2. ->img after reshape', img.shape)
+            # print('2. ->img after reshape', img.shape)
             img_feats = self.img_backbone(img) # feed to the backbone 
             # return images of 4 scales,from resnet, to bevformer 
-            print('3. ->img after backbone', img_feats[0].shape)
+            # print('3. ->img after backbone', img_feats[0].shape)
             if isinstance(img_feats, dict):
                 img_feats = list(img_feats.values())
         else:
@@ -187,17 +189,20 @@ class LaneSegNet(MVXTwoStageDetector):
         for i in range(bs):
             is_first_frame = is_first_frame_list[i]
             if is_first_frame:
-                print('->curr bev feat',curr_bev_feats[i].shape)
+                # print('->curr bev feat',curr_bev_feats[i].shape)
                 new_feat = self.stream_fusion_neck(curr_bev_feats[i].clone().detach(), curr_bev_feats[i])
                 new_feat = new_feat.flatten(1,2).permute(1,0)
-                print('->new feat after flatten', new_feat.shape)
+                # print('->new feat after flatten', new_feat.shape)
                 fused_feats_list.append(new_feat)
+
             else:
                 # else, warp buffered bev feature to current pose
-                prev_e2g_trans = self.plane.new_tensor(pose_memory[i]['ego2global_translation'], dtype=torch.float64)
-                prev_e2g_rot = self.plane.new_tensor(pose_memory[i]['ego2global_rotation'], dtype=torch.float64)
-                curr_e2g_trans = self.plane.new_tensor(img_metas[i]['ego2global_translation'], dtype=torch.float64)
-                curr_e2g_rot = self.plane.new_tensor(img_metas[i]['ego2global_rotation'], dtype=torch.float64)
+                # print('pose memory key',pose_memory[i].keys())
+                # in open lane v2: ego2global -> lidar2global 
+                prev_e2g_trans = self.plane.new_tensor(pose_memory[i]['can_bus'][:3], dtype=torch.float64) # translation vector
+                prev_e2g_rot = self.plane.new_tensor(pose_memory[i]['lidar2global_rotation'], dtype=torch.float64)
+                curr_e2g_trans = self.plane.new_tensor(img_metas[i]['can_bus'][:3], dtype=torch.float64) # translation vector 
+                curr_e2g_rot = self.plane.new_tensor(img_metas[i]['lidar2global_rotation'], dtype=torch.float64)
                 
                 prev_g2e_matrix = torch.eye(4, dtype=torch.float64, device=prev_e2g_trans.device)
                 prev_g2e_matrix[:3, :3] = prev_e2g_rot.T
@@ -213,13 +218,17 @@ class LaneSegNet(MVXTwoStageDetector):
                 # from (-30, 30) or (-15, 15) to (-1, 1)
                 prev_coord[..., 0] = prev_coord[..., 0] / (self.roi_size[0]/2)
                 prev_coord[..., 1] = -prev_coord[..., 1] / (self.roi_size[1]/2)
-
+                # to warp shape = (100,200,2) -> (20000,256) same as above 
+                # print('->before permute',bev_memory[i].shape)
+                bev_memory[i] = bev_memory[i].unflatten(0,(self.bev_h, self.bev_w)).permute(2,0,1)
+                # print('before warp', bev_memory[i].shape)
                 warped_feat = F.grid_sample(bev_memory[i].unsqueeze(0), 
                                 prev_coord.unsqueeze(0), 
                                 padding_mode='zeros', align_corners=False).squeeze(0)
+                # print('->warped_feat', warped_feat.shape)
                 new_feat = self.stream_fusion_neck(warped_feat, curr_bev_feats[i])
                 new_feat = new_feat.flatten(1,2).permute(1,0)
-                print('->new feat after flatten', new_feat.shape)
+                # print('->new feat after flatten', new_feat.shape)
 
                 fused_feats_list.append(new_feat)
 
@@ -265,15 +274,15 @@ class LaneSegNet(MVXTwoStageDetector):
         [1, 7, 256, 10, 13]
         [1, 7, 256,  5, 7]
         """
-        print('->Forward train: img_feats_shape 0', img_feats[0].shape,len(img_feats)) 
-        print('->Forward train: img_feats_shape 1', img_feats[1].shape,len(img_feats)) 
-        print('->Forward train: img_feats_shape 2', img_feats[2].shape,len(img_feats)) 
-        print('->Forward train: img_feats_shape 3', img_feats[3].shape,len(img_feats)) 
+        # print('->Forward train: img_feats_shape 0', img_feats[0].shape,len(img_feats)) 
+        # print('->Forward train: img_feats_shape 1', img_feats[1].shape,len(img_feats)) 
+        # print('->Forward train: img_feats_shape 2', img_feats[2].shape,len(img_feats)) 
+        # print('->Forward train: img_feats_shape 3', img_feats[3].shape,len(img_feats)) 
 
         # video test mode in bev encoder, img_feats attends prev_bev 
         bev_feats = self.bev_constructor(img_feats, img_metas, prev_bev) # [200,256]
         # after this, shape=1,20k,256 
-        print("->Forward train: bev_feat_shape", bev_feats.shape) # [20k,256]
+        # print("->Forward train: bev_feat_shape", bev_feats.shape) # [20k,256]
         # right place 
         if self.streaming_bev:
             self.bev_memory.train()
@@ -281,9 +290,9 @@ class LaneSegNet(MVXTwoStageDetector):
       
         losses = dict()
         # before dense head 
-        print("before pts_bbox_head: img_feats,",img_feats[0].shape)
-        print('before pts_bbox_head: bev_Feats', bev_feats.shape)
-        print('img_metas', img_metas[0].keys())
+        # print("before pts_bbox_head: img_feats,",img_feats[0].shape)
+        # print('before pts_bbox_head: bev_Feats', bev_feats.shape)
+        # print('img_metas', img_metas[0].keys())
         outs = self.pts_bbox_head(img_feats, bev_feats, img_metas) # error here
         
         loss_inputs = [outs, gt_lanes_3d, gt_lane_labels_3d, gt_instance_masks, gt_lane_left_type, gt_lane_right_type]
@@ -291,11 +300,11 @@ class LaneSegNet(MVXTwoStageDetector):
         for loss in lane_losses:
             losses['lane_head.' + loss] = lane_losses[loss]
         lane_feats = outs['history_states']
-        print('lane_feats',lane_feats.shape)   
+        # print('lane_feats',lane_feats.shape)   
         if self.lclc_head is not None:
             # MLP
             lclc_losses = self.lclc_head.forward_train(lane_feats, lane_assign_result, lane_feats, lane_assign_result, gt_lane_adj)
-            print('lclc_loss', lclc_losses)
+            # print('lclc_loss', lclc_losses)
             for loss in lclc_losses:
                 losses['lclc_head.' + loss] = lclc_losses[loss]
 
@@ -320,8 +329,8 @@ class LaneSegNet(MVXTwoStageDetector):
             self.prev_frame_info['prev_bev'] = None
 
         # Get the delta of ego position and angle between two timestamps.
-        tmp_pos = copy.deepcopy(img_metas[0]['can_bus'][:3])
-        tmp_angle = copy.deepcopy(img_metas[0]['can_bus'][-1])
+        tmp_pos = copy.deepcopy(img_metas[0]['can_bus'][:3]) # translation 
+        tmp_angle = copy.deepcopy(img_metas[0]['can_bus'][-1]) # yaw angle 
         # not use this 
         if self.prev_frame_info['prev_bev'] is not None:
             img_metas[0]['can_bus'][:3] -= self.prev_frame_info['prev_pos']
@@ -347,7 +356,7 @@ class LaneSegNet(MVXTwoStageDetector):
         if self.streaming_bev: 
             self.bev_memory.eval() 
             bev_feats = self.update_bev_feature(bev_feats, img_metas)
-        outs = self.pts_bbox_head(x, bev_feats, img_metas)
+        outs = self.pts_bbox_head(x, bev_feats, img_metas) # shape correct? 
 
         lane_results = self.pts_bbox_head.get_lanes(
             outs, img_metas, rescale=rescale) # lane prediction results 
@@ -362,12 +371,18 @@ class LaneSegNet(MVXTwoStageDetector):
         return bev_feats, lane_results, lsls_results
 
     def simple_test(self, img_metas, img=None, prev_bev=None, rescale=False):
-        """Test function without augmentaiton."""
+        """Test function without augmentation."""
         img_feats = self.extract_feat(img=img, img_metas=img_metas)
 
         results_list = [dict() for i in range(len(img_metas))]
         new_prev_bev, lane_results, lsls_results = self.simple_test_pts(
             img_feats, img_metas, img, prev_bev, rescale=rescale)
+        """
+        img_feats: shape 
+        img_metas: 
+        prev_bev = None, 
+        rescale
+        """
         for result_dict, lane, lsls in zip(results_list, lane_results, lsls_results):
             result_dict['lane_results'] = lane
             result_dict['bbox_results'] = None

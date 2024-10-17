@@ -133,7 +133,7 @@ class LaneAttention(BaseModule):
                                                    self.num_heads,
                                                    self.num_levels,
                                                    self.num_points)
-        print("->Lane Attn", attention_weights.shape)
+        # print("->Lane Attn", attention_weights.shape)
         if reference_points.shape[-1] == 2:
             reference_points = reference_points.permute(0, 1, 3, 2, 4)
             offset_normalizer = torch.stack(
@@ -165,7 +165,7 @@ class LaneAttention(BaseModule):
             # (num_query, bs ,embed_dims)
             output = output.permute(1, 0, 2)
         
-        print('output shape', output.shape)
-        print('self.dropout(output)',self.dropout(output).shape)
+        # print('output shape', output.shape)
+        # print('self.dropout(output)',self.dropout(output).shape)
 
         return self.dropout(output) + identity

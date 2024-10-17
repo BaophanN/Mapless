@@ -47,7 +47,7 @@ class OpenLaneV2_subset_A_LaneSegNet_Dataset(Custom3DDataset):
                  queue_length=1,
                  filter_empty_te=False,
                  filter_map_change=False,
-                 points_num=10,
+                 points_num=10, # 10 points for each lane 
                  split='train',
                  **kwargs):
         self.filter_map_change = filter_map_change
@@ -145,7 +145,7 @@ class OpenLaneV2_subset_A_LaneSegNet_Dataset(Custom3DDataset):
         can_bus[-2] = patch_angle / 180 * np.pi
         can_bus[-1] = patch_angle
         input_dict['can_bus'] = can_bus
-        input_dict['lidar2global_rotation'] = np.array(info['pose']['rotation'])
+        input_dict['lidar2global_rotation'] = np.array(info['pose']['rotation']) # pose,rotation = lidar2global_rotation 
 
         return input_dict
 

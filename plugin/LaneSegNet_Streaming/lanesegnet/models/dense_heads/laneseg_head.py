@@ -268,8 +268,8 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
 
         tmp =self.reference_points_memory.get(img_metas) 
         ref_pts_memory, pose_memory = tmp['tensor'], tmp['img_metas']
-        print('ref_pts_memory',len(ref_pts_memory)) # list
-        print('pose_memory',len(pose_memory)) # list
+        # print('ref_pts_memory',len(ref_pts_memory)) # list
+        # print('pose_memory',len(pose_memory)) # list
 
 
         if return_loss: 
@@ -287,15 +287,16 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
 
                 padding = query_embedding.new_zeros((self.topk_query, self.num_points, 2))
                 prop_reference_points_list.append(padding)
-                print("->1st frame: propagated_query_list", padding.shape)
+                # print("->1st frame: propagated_query_list", padding.shape)
             else: 
                 # use float64 to do precise coord transformation
                 # translation and rotation on roi (60,30)
-                print('huhu')
-                prev_e2g_trans = self.roi_size.new_tensor(pose_memory[i]['ego2global_translation'], dtype=torch.float64)
-                prev_e2g_rot = self.roi_size.new_tensor(pose_memory[i]['ego2global_rotation'], dtype=torch.float64)
-                curr_e2g_trans = self.roi_size.new_tensor(img_metas[i]['ego2global_translation'], dtype=torch.float64)
-                curr_e2g_rot = self.roi_size.new_tensor(img_metas[i]['ego2global_rotation'], dtype=torch.float64)
+                #in openlanev2: Agoverse ego2global -> lidar2global
+                # print('huhu')
+                prev_e2g_trans = self.roi_size.new_tensor(pose_memory[i]['can_bus'][:3], dtype=torch.float64)
+                prev_e2g_rot = self.roi_size.new_tensor(pose_memory[i]['lidar2global_rotation'], dtype=torch.float64) # translation vector
+                curr_e2g_trans = self.roi_size.new_tensor(img_metas[i]['can_bus'][:3], dtype=torch.float64)
+                curr_e2g_rot = self.roi_size.new_tensor(img_metas[i]['lidar2global_rotation'], dtype=torch.float64) # translation vector
                 
                 prev_e2g_matrix = torch.eye(4, dtype=torch.float64).to(query_embedding.device)
                 prev_e2g_matrix[:3, :3] = prev_e2g_rot
@@ -309,13 +310,13 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
                 pos_encoding = prev2curr_matrix.float()[:3].view(-1) 
 
                 prop_q = query_memory[i]
-                print('->prop_q', prop_q.shape)
+                # print('->prop_q', prop_q.shape)
                 # MotionMLP
                 query_memory_updated = self.query_update(
                     prop_q,
                     pos_encoding.view(1,-1).repeat(len(query_memory[i]), 1)
                 )   
-                print("->query_memory_updated", query_memory_updated.shape)           
+                # print("->query_memory_updated", query_memory_updated.shape)           
                 propagated_query_list.append(query_memory_updated.clone())
 
                 pred = self.reg_branches[-1](query_memory_updated).sigmoid()
@@ -356,11 +357,11 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
                 curr_ref_pts = torch.einsum('lk,ijk->ijl',prev2curr_matrix,denormed_ref_pts.double()).float()
                 normed_ref_pts = (curr_ref_pts[...,:2] - self.origin) / self.roi_size # (num_prop, num_pts, 2) 
                 normed_ref_pts = torch.clip(normed_ref_pts, min=0.,max=1.)
-                print('->normed_ref_pts', normed_ref_pts.shape)
+                # print('->normed_ref_pts', normed_ref_pts.shape)
                 prop_reference_points_list.append(normed_ref_pts)
-        print(len(propagated_query_list))
-        print(len(prop_reference_points_list))
-        print('huhu')
+        # print(len(propagated_query_list))
+        # print(len(prop_reference_points_list))
+        # print('huhu')
         prop_query_embedding = torch.stack(propagated_query_list) # (bs, topk, embed_dims) 
         prop_ref_pts = torch.stack(prop_reference_points_list) # (bs, topk, num_pts, 2) 
         assert list(prop_query_embedding.shape) == [bs, self.topk_query, self.embed_dims]
@@ -434,7 +435,7 @@ class LaneSegHead(AnchorFreeHead, nn.Module):
 
 
         object_query_embeds = self.query_embedding.weight.to(dtype)
-        print("before laneseg transformer, object_query_embeds",object_query_embeds.shape)
+        # print("before laneseg transformer, object_query_embeds",object_query_embeds.shape)
         outputs = self.transformer(
             mlvl_feats,
             bev_feats,

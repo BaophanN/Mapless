@@ -70,9 +70,9 @@ class LaneSegNetTransformer(BaseModule):
         query_pos = query_pos.unsqueeze(0).expand(bs, -1, -1)
         query = query.unsqueeze(0).expand(bs, -1, -1)
         reference_points = self.reference_points(query_pos)
-        print("laneseg transformer")
-        print('query_pos', query_pos.shape)
-        print('reference points', reference_points.shape)
+        # print("laneseg transformer")
+        # print('query_pos', query_pos.shape)
+        # print('reference points', reference_points.shape)
  
 
         # ident init: repeat reference points to num points
@@ -82,9 +82,9 @@ class LaneSegNetTransformer(BaseModule):
         reference_points = reference_points.view(bs, num_query, self.points_num, self.pts_dim) #(1,200,1,3)
 
         init_reference_out = reference_points
-        print('line 73 laneseg transformer, bev_embed',bev_embed.shape)
-        print('line 73 laneseg transformer, query_pos',query_pos.shape)
-        print('line 73 laneseg transformer, query',query.shape)
+        # print('line 73 laneseg transformer, bev_embed',bev_embed.shape)
+        # print('line 73 laneseg transformer, query_pos',query_pos.shape)
+        # print('line 73 laneseg transformer, query',query.shape)
 
 
         query = query.permute(1, 0, 2)         # (1,200,256)
