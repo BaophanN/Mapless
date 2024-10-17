@@ -2,6 +2,8 @@ import numpy as np
 from tqdm import tqdm
 from shapely.geometry import LineString
 from openlanev2.lanesegment.io import io
+import sys
+sys.path.insert(0, '/workspace/source/Mapless')
 
 """
 This script is used to collect the data from the original OpenLane-V2 dataset.
@@ -54,9 +56,11 @@ def collect(root_path : str, data_dict : dict, collection : str, n_points : dict
     io.pickle_dump(f'{root_path}/{collection}.pkl', meta)
 
 if __name__ == '__main__':
-    root_path = 'data/OpenLane-V2'
-    file = f'{root_path}/data_dict_subset_A.json'
-    subset = 'data_dict_subset_A'
+    import sys
+    sys.path.insert(0, '/workspace/source/Mapless')
+    root_path = 'data/datasets'
+    file = f'{root_path}/data_dict_sample.json'
+    subset = 'data_dict_sample'
     for split, segments in io.json_load(file).items():
         collect(
             root_path,
